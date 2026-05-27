@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sealien IO — 24AI / 24DI</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="app">
+    <header class="top-bar">
+      <div>
+        <h1>Sealien IO 模拟</h1>
+        <p class="sub">SEALIEN_IO_INPUT → axes[24] + buttons[24]</p>
+      </div>
+      <div class="top-status">
+        <span id="link_dot" class="link-dot"></span>
+        <span id="status" class="status-text">就绪</span>
+      </div>
+    </header>
+
+    <details class="settings" open>
+      <summary>UDP 链路</summary>
+      <div class="settings-row">
+        <label>主机 <input id="udp_host" type="text" value="127.0.0.1"></label>
+        <label>端口 <input id="udp_port" type="number" value="14550"></label>
+        <label>Hz <input id="send_rate" type="number" value="50" min="1" max="100"></label>
+        <label class="chk"><input id="auto_send" type="checkbox" checked> 自动发送</label>
+        <button type="button" id="btn_apply" class="btn">应用</button>
+        <button type="button" id="btn_zero" class="btn ghost">全部清零</button>
+      </div>
+    </details>
+
+    <div class="panels">
+      <section class="panel">
+        <h2>24 × AI → Joy.axes</h2>
+        <div id="ai_grid" class="io-grid"></div>
+      </section>
+      <section class="panel">
+        <h2>24 × DI → Joy.buttons</h2>
+        <div id="di_grid" class="io-grid di-grid"></div>
+      </section>
+    </div>
+  </div>
+  <script src="app.js"></script>
+</body>
+</html>

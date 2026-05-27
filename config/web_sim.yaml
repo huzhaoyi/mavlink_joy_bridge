@@ -1,0 +1,7 @@
+rc_web_sim_server:
+  ros__parameters:
+    web_host: "0.0.0.0"
+    web_port: 8080
+    udp_target_host: "127.0.0.1"
+    udp_target_port: 14550
+    send_rate_hz: 50.0

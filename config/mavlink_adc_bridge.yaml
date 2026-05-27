@@ -1,0 +1,7 @@
+mavlink_adc_bridge:
+  ros__parameters:
+    listen_address: "0.0.0.0"
+    listen_port: 14550
+    remote_ip_filter: ""
+    mavlink_input_type: "auto"   # auto | manual_control | rc_channels_raw | rc_channels | sealien_rc
+    link_timeout_ms: 500

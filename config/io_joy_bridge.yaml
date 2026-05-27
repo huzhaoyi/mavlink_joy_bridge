@@ -1,0 +1,9 @@
+io_joy_bridge:
+  ros__parameters:
+    listen_address: "0.0.0.0"
+    listen_port: 14550
+    remote_ip_filter: ""
+    joy_topic: "/joy"
+    publish_rate_hz: 50.0
+    link_timeout_ms: 500
+    deadzone: 0.05

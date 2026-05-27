@@ -1,0 +1,24 @@
+<?xml version="1.0"?>
+<mavlink>
+  <version>3</version>
+  <dialect>0</dialect>
+  <enums></enums>
+  <messages>
+    <message id="202" name="SEALIEN_RC_INPUT">
+      <description>Legacy RC input (deprecated)</description>
+      <field type="uint32_t" name="seq">sequence</field>
+      <field type="uint32_t" name="timestamp_ms">timestamp ms</field>
+      <field type="float[16]" name="ch">channels normalized</field>
+      <field type="int8_t" name="mode">mode switch</field>
+      <field type="uint8_t" name="valid_mask">valid channel bitmask</field>
+      <field type="uint8_t" name="flags">status flags</field>
+    </message>
+    <message id="203" name="SEALIEN_IO_INPUT">
+      <description>24 AI + 24 DI in one frame</description>
+      <field type="uint32_t" name="seq">sequence</field>
+      <field type="uint32_t" name="timestamp_ms">timestamp ms</field>
+      <field type="float[24]" name="ai">analog -1..1</field>
+      <field type="uint32_t" name="di">digital inputs bitmask</field>
+    </message>
+  </messages>
+</mavlink>

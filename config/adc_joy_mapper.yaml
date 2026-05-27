@@ -1,0 +1,18 @@
+adc_joy_mapper:
+  ros__parameters:
+    adc_topic: "/adc/raw"
+    joy_topic: "/joy"
+    publish_rate_hz: 50.0
+    link_timeout_ms: 500
+    mode_adc_channel: -1
+
+    adc_min: [1000, 1000, 1000, 1000]
+    adc_max: [2000, 2000, 2000, 2000]
+    adc_center: [1500, 1500, 1500, 1500]
+    deadzone: [0.05, 0.05, 0.05, 0.05]
+    invert: [true, false, true, false]
+    lpf_alpha: [0.35, 0.35, 0.35, 0.35]
+    mode_positions: [-1.0, 0.0, 1.0]
+
+    axes_map_adc_channels: [0, 1, 2, 3]
+    axes_map_joy_axes: [1, 0, 2, 3]
