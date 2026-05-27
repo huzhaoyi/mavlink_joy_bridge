@@ -41,7 +41,7 @@ usage() {
     echo "环境变量:"
     echo "  SEALIEN_WS         工作空间路径 (默认: ~/sealien_ws)"
     echo ""
-    echo "说明: 需另起 mixed_io_joy_bridge 监听 UDP；全链路见 README 或 sim launch。"
+    echo "说明: 需另起 mavlink_mixed_io_receiver + adc_to_joy_mapper；全链路见 README 或 sim launch。"
 }
 
 while [[ $# -gt 0 ]]; do

@@ -9,7 +9,14 @@ endif()
 
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
+find_package(std_msgs REQUIRED)
 find_package(sensor_msgs REQUIRED)
+find_package(rosidl_default_generators REQUIRED)
+
+rosidl_generate_interfaces(${PROJECT_NAME}
+  msg/MixedIoRaw.msg
+  DEPENDENCIES std_msgs
+)
 
 include_directories(include)
 include_directories(SYSTEM
@@ -17,19 +24,29 @@ include_directories(SYSTEM
   third_party/mavlink/sealien_mavlink
 )
 
-add_executable(mixed_io_joy_bridge
-  src/mixed_io_joy_bridge_node.cpp
-  src/mixed_io_joy_bridge_core.cpp
+add_executable(mavlink_mixed_io_receiver
+  src/mavlink_mixed_io_receiver_node.cpp
+  src/mavlink_mixed_io_receiver.cpp
 )
-add_executable(mavlink_mixed_io_udp_send tools/mavlink_mixed_io_udp_send.cpp)
+ament_target_dependencies(mavlink_mixed_io_receiver rclcpp std_msgs)
+target_link_libraries(mavlink_mixed_io_receiver pthread)
 
-target_link_libraries(mixed_io_joy_bridge pthread)
+add_executable(adc_to_joy_mapper
+  src/adc_to_joy_mapper_node.cpp
+  src/adc_to_joy_mapper.cpp
+)
+ament_target_dependencies(adc_to_joy_mapper rclcpp std_msgs sensor_msgs)
+
+add_executable(mavlink_mixed_io_udp_send tools/mavlink_mixed_io_udp_send.cpp)
 target_link_libraries(mavlink_mixed_io_udp_send pthread)
 
-ament_target_dependencies(mixed_io_joy_bridge rclcpp sensor_msgs)
+rosidl_get_typesupport_target(cpp_typesupport_target ${PROJECT_NAME} rosidl_typesupport_cpp)
+target_link_libraries(mavlink_mixed_io_receiver "${cpp_typesupport_target}")
+target_link_libraries(adc_to_joy_mapper "${cpp_typesupport_target}")
 
 install(TARGETS
-  mixed_io_joy_bridge
+  mavlink_mixed_io_receiver
+  adc_to_joy_mapper
   mavlink_mixed_io_udp_send
   DESTINATION lib/${PROJECT_NAME}
 )
@@ -45,4 +62,5 @@ install(PROGRAMS
   DESTINATION lib/${PROJECT_NAME}
 )
 
+ament_export_dependencies(rosidl_default_runtime)
 ament_package()

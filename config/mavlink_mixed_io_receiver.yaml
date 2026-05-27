@@ -1,0 +1,16 @@
+mavlink_mixed_io_receiver:
+  ros__parameters:
+    # UDP 监听
+    listen_address: "0.0.0.0"
+    listen_port: 14550
+    remote_ip_filter: ""        # 留空=不过滤；填具体 IP 仅接收该来源
+
+    # 输出话题
+    raw_topic: "/mixed_io/raw"
+
+    # 链路超时：超过该时长未收到 MIXED_IO_DATA 即进入 failsafe
+    # 适合手动控制的范围 100~200ms；当前默认 200ms
+    link_timeout_ms: 200
+
+    # failsafe 状态下持续发布 /mixed_io/raw (link_ok=false, adc=0, gpio=0) 的频率
+    failsafe_publish_rate_hz: 50.0
