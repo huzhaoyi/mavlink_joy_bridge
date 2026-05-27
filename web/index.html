@@ -3,15 +3,15 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Sealien IO — 24AI / 24DI</title>
+  <title>Sealien Mixed IO — 24ADC / 24GPIO</title>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
   <div class="app">
     <header class="top-bar">
       <div>
-        <h1>Sealien IO 模拟</h1>
-        <p class="sub">SEALIEN_IO_INPUT → axes[24] + buttons[24]</p>
+        <h1>Sealien Mixed IO 模拟</h1>
+        <p class="sub">MIXED_IO_DATA (msgid=20) → ADC 电压 + GPIO 输入 → Joy</p>
       </div>
       <div class="top-status">
         <span id="link_dot" class="link-dot"></span>
@@ -27,18 +27,21 @@
         <label>Hz <input id="send_rate" type="number" value="50" min="1" max="100"></label>
         <label class="chk"><input id="auto_send" type="checkbox" checked> 自动发送</label>
         <button type="button" id="btn_apply" class="btn">应用</button>
+        <button type="button" id="btn_center_adc" class="btn ghost">ADC 居中</button>
         <button type="button" id="btn_zero" class="btn ghost">全部清零</button>
       </div>
     </details>
 
     <div class="panels">
       <section class="panel">
-        <h2>24 × AI → Joy.axes</h2>
-        <div id="ai_grid" class="io-grid"></div>
+        <h2>24 × ADC (V) → Joy.axes</h2>
+        <p class="panel-hint">模拟 ADS7128 三路 × 8 通道，电压 0~5 V，中心约 2.5 V</p>
+        <div id="adc_grid" class="io-grid"></div>
       </section>
       <section class="panel">
-        <h2>24 × DI → Joy.buttons</h2>
-        <div id="di_grid" class="io-grid di-grid"></div>
+        <h2>24 × GPIO 输入 → Joy.buttons</h2>
+        <p class="panel-hint">对应 gpio_1_32_input 的 bit0~bit23</p>
+        <div id="gpio_grid" class="io-grid di-grid"></div>
       </section>
     </div>
   </div>

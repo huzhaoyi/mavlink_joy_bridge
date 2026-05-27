@@ -5,6 +5,7 @@ log/
 
 # Editor / OS
 .vscode/
+compile_commands.json
 *.swp
 *~
 .DS_Store

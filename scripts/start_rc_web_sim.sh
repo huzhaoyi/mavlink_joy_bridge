@@ -41,7 +41,7 @@ usage() {
     echo "环境变量:"
     echo "  SEALIEN_WS         工作空间路径 (默认: ~/sealien_ws)"
     echo ""
-    echo "说明: 需另起 mavlink_adc_bridge 监听 UDP；全链路见 e2e_test.sh 或 launch。"
+    echo "说明: 需另起 mixed_io_joy_bridge 监听 UDP；全链路见 README 或 sim launch。"
 }
 
 while [[ $# -gt 0 ]]; do
@@ -88,11 +88,22 @@ if [[ -n "${UDP_PORT}" ]]; then
     ARGS+=(--udp-port "${UDP_PORT}")
 fi
 
-echo "启动 RC 网页模拟器..."
+echo "启动 Mixed IO 网页模拟器..."
 echo "  配置: ${CONFIG}"
-echo "  浏览器: http://127.0.0.1:8080/  (或本机 IP)"
+WEB_PORT_DISPLAY="${WEB_PORT:-8080}"
+echo "  浏览器: http://127.0.0.1:${WEB_PORT_DISPLAY}/  (或本机 IP)"
 echo "  UDP 目标: 见 web_sim.yaml 或上述 --udp-* 参数"
 echo "  按 Ctrl+C 停止"
 echo ""
+
+if command -v ss >/dev/null 2>&1; then
+    if ss -tln 2>/dev/null | grep -q ":${WEB_PORT_DISPLAY} "; then
+        echo "错误: 端口 ${WEB_PORT_DISPLAY} 已被占用。" >&2
+        echo "  查看占用: ss -tlnp | grep :${WEB_PORT_DISPLAY}" >&2
+        echo "  结束旧进程: pkill -f rc_web_sim_server.py" >&2
+        echo "  或换端口: $(basename "$0") --web-port 8081" >&2
+        exit 1
+    fi
+fi
 
 exec "${ARGS[@]}"

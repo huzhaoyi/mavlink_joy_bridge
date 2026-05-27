@@ -9,9 +9,9 @@ def generate_launch_description():
     return LaunchDescription([
         Node(
             package='sealien_mavlink_joy_bridge',
-            executable='io_joy_bridge',
-            name='io_joy_bridge',
+            executable='mixed_io_joy_bridge',
+            name='mixed_io_joy_bridge',
             output='screen',
-            parameters=[os.path.join(pkg, 'config', 'io_joy_bridge.yaml')],
+            parameters=[os.path.join(pkg, 'config', 'mixed_io_joy_bridge.yaml')],
         ),
     ])

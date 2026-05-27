@@ -1,6 +1,6 @@
 #!/usr/bin/python3
 # -*- coding: utf-8 -*-
-"""HTTP web UI + UDP MAVLink SEALIEN_IO_INPUT (24 AI + 24 DI)."""
+"""HTTP web UI + UDP MAVLink MIXED_IO_DATA (24 ADC V + GPIO input)."""
 
 import argparse
 import json
@@ -23,8 +23,9 @@ except ImportError:
     get_package_share_directory = None
     get_package_prefix = None
 
-IO_AI_COUNT = 24
-IO_DI_COUNT = 24
+IO_ADC_COUNT = 24
+IO_GPIO_COUNT = 24
+ADC_DEFAULT_V = 2.5
 
 
 def resolve_mavlink_send_bin() -> str:
@@ -32,7 +33,7 @@ def resolve_mavlink_send_bin() -> str:
         try:
             prefix = get_package_prefix('sealien_mavlink_joy_bridge')
             candidate = os.path.join(
-                prefix, 'lib', 'sealien_mavlink_joy_bridge', 'mavlink_io_udp_send')
+                prefix, 'lib', 'sealien_mavlink_joy_bridge', 'mavlink_mixed_io_udp_send')
             if os.path.isfile(candidate):
                 return candidate
         except Exception:
@@ -40,10 +41,10 @@ def resolve_mavlink_send_bin() -> str:
     script_dir = os.path.dirname(os.path.abspath(__file__))
     dev_candidate = os.path.normpath(
         os.path.join(script_dir, '..', '..', '..', 'build', 'sealien_mavlink_joy_bridge',
-                     'mavlink_io_udp_send'))
+                     'mavlink_mixed_io_udp_send'))
     if os.path.isfile(dev_candidate):
         return dev_candidate
-    return 'mavlink_io_udp_send'
+    return 'mavlink_mixed_io_udp_send'
 
 
 def resolve_web_dir() -> str:
@@ -79,23 +80,23 @@ def load_config(path: str) -> dict:
     return defaults
 
 
-def di_list_to_mask(di_list: list) -> int:
+def gpio_list_to_mask(gpio_list: list) -> int:
     mask = 0
-    for i in range(min(IO_DI_COUNT, len(di_list))):
-        if di_list[i]:
+    for i in range(min(IO_GPIO_COUNT, len(gpio_list))):
+        if gpio_list[i]:
             mask |= 1 << i
-    return mask & 0x00FFFFFF
+    return mask & 0xFFFFFFFF
 
 
-def di_mask_to_list(mask: int) -> list:
-    return [(mask >> i) & 1 for i in range(IO_DI_COUNT)]
+def gpio_mask_to_list(mask: int) -> list:
+    return [(mask >> i) & 1 for i in range(IO_GPIO_COUNT)]
 
 
 class IoSimState:
     def __init__(self, cfg: dict) -> None:
         self.lock = threading.Lock()
-        self.ai = [0.0] * IO_AI_COUNT
-        self.di = [0] * IO_DI_COUNT
+        self.adc = [ADC_DEFAULT_V] * IO_ADC_COUNT
+        self.gpio = [0] * IO_GPIO_COUNT
         self.auto_send = True
         self.seq = 0
         self.web_host = str(cfg['web_host'])
@@ -119,14 +120,14 @@ class IoWebSimServer:
 
     def _send_once(self) -> None:
         with self.state.lock:
-            ai = list(self.state.ai)
-            di_mask = di_list_to_mask(self.state.di)
+            adc = list(self.state.adc)
+            gpio_lo = gpio_list_to_mask(self.state.gpio)
             host = self.state.udp_target_host
             port = self.state.udp_target_port
             self.state.seq += 1
 
-        cmd = [self.mavlink_send_bin, host, str(port), str(di_mask)]
-        cmd.extend([str(v) for v in ai])
+        cmd = [self.mavlink_send_bin, host, str(port), str(gpio_lo), '0']
+        cmd.extend([str(v) for v in adc])
         subprocess.run(cmd, check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
     def _send_loop(self) -> None:
@@ -179,8 +180,8 @@ class IoWebSimServer:
                             'udp_target_port': server_obj.state.udp_target_port,
                             'send_rate_hz': server_obj.state.send_rate_hz,
                             'auto_send': server_obj.state.auto_send,
-                            'ai': list(server_obj.state.ai),
-                            'di': list(server_obj.state.di),
+                            'adc': list(server_obj.state.adc),
+                            'gpio': list(server_obj.state.gpio),
                         }
                     self._send_json(HTTPStatus.OK, cfg)
                     return
@@ -216,7 +217,7 @@ class IoWebSimServer:
 
             def do_POST(self) -> None:
                 path = urlparse(self.path).path
-                if path in ('/api/rc', '/api/io'):
+                if path in ('/api/io',):
                     body = self._read_json()
                     with server_obj.state.lock:
                         if 'udp_target_host' in body:
@@ -227,15 +228,15 @@ class IoWebSimServer:
                             server_obj.state.send_rate_hz = float(body['send_rate_hz'])
                         if 'auto_send' in body:
                             server_obj.state.auto_send = bool(body['auto_send'])
-                        if 'ai' in body:
-                            ai_in = body['ai']
-                            for i in range(min(IO_AI_COUNT, len(ai_in))):
-                                val = float(ai_in[i])
-                                server_obj.state.ai[i] = max(-1.0, min(1.0, val))
-                        if 'di' in body:
-                            di_in = body['di']
-                            for i in range(min(IO_DI_COUNT, len(di_in))):
-                                server_obj.state.di[i] = 1 if di_in[i] else 0
+                        if 'adc' in body:
+                            adc_in = body['adc']
+                            for i in range(min(IO_ADC_COUNT, len(adc_in))):
+                                val = float(adc_in[i])
+                                server_obj.state.adc[i] = max(0.0, min(5.0, val))
+                        if 'gpio' in body:
+                            gpio_in = body['gpio']
+                            for i in range(min(IO_GPIO_COUNT, len(gpio_in))):
+                                server_obj.state.gpio[i] = 1 if gpio_in[i] else 0
                     if body.get('send_once', False):
                         server_obj._send_once()
                     self._send_json(HTTPStatus.OK, {'ok': True})
@@ -252,7 +253,7 @@ class IoWebSimServer:
             (self.state.web_host, self.state.web_port), Handler)
         server.daemon_threads = True
         print(
-            'IO web simulator: http://%s:%d/ -> SEALIEN_IO_INPUT %s:%d @ %.1f Hz'
+            'Mixed IO web simulator: http://%s:%d/ -> MIXED_IO_DATA %s:%d @ %.1f Hz'
             % (
                 self.state.web_host,
                 self.state.web_port,
@@ -269,7 +270,7 @@ class IoWebSimServer:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description='Sealien IO web MAVLink simulator')
+    parser = argparse.ArgumentParser(description='Sealien Mixed IO web MAVLink simulator')
     parser.add_argument('--config', default='', help='yaml config path')
     parser.add_argument('--web-host', default='')
     parser.add_argument('--web-port', type=int, default=0)
