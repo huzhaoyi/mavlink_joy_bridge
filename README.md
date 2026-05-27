@@ -98,7 +98,7 @@ mapper 订阅 `/mixed_io/raw`，按以下流水线生成 `axes`：
 | `listen_port` | 14550 | MCU/网页 → receiver |
 | `link_timeout_ms` | **200** | 手动控制范围 100~200 ms |
 | `failsafe_publish_rate_hz` | 50 | 仅超时时持续发零；链路活时由 MCU 频率驱动 |
-| MCU 上报频率 | — | 建议 **≥ 50 Hz**（READ 默认 10 Hz 仅对慢控制够用） |
+| MCU 上报频率 | — | 建议 **≥ 50 Hz**（MCU 当前默认 10 Hz 仅对慢控制够用） |
 | `adc_min_v / center_v / max_v` | 0 / 2.5 / 5 V | 实测物理端点和中位，逐通道填 |
 | `deadzone_low / high` | 0.05 | 输出域；中位漂移可以两边不对称 |
 | `expo` | 0 | 线性 |
@@ -123,8 +123,43 @@ adc_max_v:    [4.61, ...]
 ros2 topic echo /mixed_io/raw
 ros2 topic echo /joy
 ros2 topic hz /joy
+ros2 topic hz /mixed_io/raw     # 链路活时随 MCU；超时进入 50Hz failsafe
 
-ros2 run sealien_mavlink_joy_bridge e2e_test.sh
+# 一键脚本：启动两节点 + UDP 发包 + 订阅 raw/joy + 验证 failsafe
+bash ~/sealien_ws/install/sealien_mavlink_joy_bridge/lib/sealien_mavlink_joy_bridge/e2e_test.sh
+```
+
+发 24 路 ADC（ch0=0V, ch1=5V, 余 2.5V）+ GPIO bit0/1=1 时，链路活的期望片段：
+
+```text
+/mixed_io/raw: link_ok=True, frame=mixed_io, adc_v[:3]=[0.0, 5.0, 2.5], gpio_mask=0x3
+/joy        : frame=mixed_io,         axes[:3]≈[-1, +1, 0],  buttons[:3]=[1, 1, 0]
+```
+
+停发后 200 ms 内自动切 failsafe：
+
+```text
+/mixed_io/raw: link_ok=False, frame=mixed_io_failsafe, adc_v 全 0
+/joy        : frame=mixed_io_failsafe, axes 全 0, buttons 全 0
+```
+
+> LPF `lpf_alpha=0.35` 时，端点需连发约 15 帧才稳定到 ±1；想立刻到位把对应通道 `lpf_alpha` 调到 1.0 即可。
+
+### 单测 mapper（绕过 receiver）
+
+校准/曲线调参可以脱离 MCU/UDP，直接给中间话题灌数据：
+
+```bash
+ros2 run sealien_mavlink_joy_bridge adc_to_joy_mapper \
+  --ros-args --params-file <pkg>/share/sealien_mavlink_joy_bridge/config/adc_to_joy_mapper.yaml
+
+# 另一个终端持续灌 24 路 ADC（ch0=4.6V）
+ros2 topic pub -r 50 /mixed_io/raw sealien_mavlink_joy_bridge/msg/MixedIoRaw \
+  "{link_ok: true, mcu_timestamp_ms: 0,
+    adc_v: [4.6, 2.5, 2.5, 2.5, 2.5, 2.5, 2.5, 2.5,
+            2.5, 2.5, 2.5, 2.5, 2.5, 2.5, 2.5, 2.5,
+            2.5, 2.5, 2.5, 2.5, 2.5, 2.5, 2.5, 2.5],
+    gpio_input_mask: 0}"
 ```
 
 ## 命令行发包
@@ -133,6 +168,29 @@ ros2 run sealien_mavlink_joy_bridge e2e_test.sh
 ros2 run sealien_mavlink_joy_bridge mavlink_mixed_io_udp_send \
   <host> <port> <gpio_lo> <gpio_hi> <adc0_V> ... <adc23_V>
 ```
+
+例：
+
+```bash
+ros2 run sealien_mavlink_joy_bridge mavlink_mixed_io_udp_send \
+  127.0.0.1 14550 3 0 \
+  0.0 5.0 2.5 2.5 2.5 2.5 2.5 2.5 \
+  2.5 2.5 2.5 2.5 2.5 2.5 2.5 2.5 \
+  2.5 2.5 2.5 2.5 2.5 2.5 2.5 2.5
+```
+
+## 故障排查
+
+| 现象 | 处理 |
+|------|------|
+| `Address already in use` 8080 | `pkill -f rc_web_sim_server.py` 或 `start_rc_web_sim.sh --web-port 8081` |
+| `Address already in use` 14550 | 旧 receiver 残留：`pkill -f mavlink_mixed_io_receiver` |
+| `ros2 topic echo` 抛 `!rclpy.ok()` | ROS daemon 状态错乱：`ros2 daemon stop && ros2 daemon start` |
+| `Package 'sealien_mavlink_joy_bridge' not found` | 当前 shell 未 `source install/setup.bash` |
+| 看到旧 `AdcRaw` 接口 | 上次构建残留：`rm -rf build/sealien_mavlink_joy_bridge install/sealien_mavlink_joy_bridge` 后重建 |
+| `/joy` 一直为 0 | 没收到 `MIXED_IO_DATA`，receiver 日志会有 `timeout (...) publishing failsafe`；检查 UDP 目标端口/防火墙 |
+| `/joy` 端点不到 ±1 | LPF 收敛中（`lpf_alpha` 偏小）或电位器实际行程小于 `adc_min_v/adc_max_v` 配置；按【实测电位器示例】重标定 |
+| 某通道始终为 0 | 触发了断线检测——检查电压是否落在 `[adc_valid_min_v, adc_valid_max_v]` 内 |
 
 ## MAVLink
 

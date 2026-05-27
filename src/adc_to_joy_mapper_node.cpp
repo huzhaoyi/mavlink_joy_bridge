@@ -1,4 +1,5 @@
 /***** (C) Copyright, Sealien Robotics(Guangzhou) Co.,Ltd. ******source file****/
+/* adc_to_joy_mapper 可执行入口 */
 
 #include "sealien_mavlink_joy_bridge/adc_to_joy_mapper.hpp"
 

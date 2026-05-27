@@ -1,6 +1,10 @@
-/***** (C) Copyright, Sealien Robotics(Guangzhou) Co.,Ltd. *****
- * Send MIXED_IO_DATA (24 ADC V + GPIO input bitmask) over UDP.
- *****/
+/***** (C) Copyright, Sealien Robotics(Guangzhou) Co.,Ltd. ******source file****/
+/*
+ * 工具: mavlink_mixed_io_udp_send
+ * 用途: 命令行打一条 MIXED_IO_DATA 到指定 UDP 端口, 用于联调 / 脚本测试.
+ * 注意: 仅发一次 (one-shot); 持续发送由调用方循环.
+ */
+
 #include <arpa/inet.h>
 #include <cstdio>
 #include <cstdlib>
@@ -12,6 +16,7 @@
 
 #define MIXED_IO_SEND_ADC_COUNT (24U)
 
+/* 打印用法到 stderr */
 static void print_usage(const char * prog)
 {
     std::fprintf(
@@ -23,8 +28,11 @@ static void print_usage(const char * prog)
         prog);
 }
 
+/* main: 解析参数 -> 打包 MIXED_IO_DATA -> sendto -> 退出
+ * 返回 0 表示发送成功; 非 0 表示参数错或 socket 失败. */
 int main(int argc, char * argv[])
 {
+    // 4 个固定参数 (prog/host/port/gpio_lo/gpio_hi=共 5) + 24 路 ADC
     if (argc < 5 + static_cast<int>(MIXED_IO_SEND_ADC_COUNT))
     {
         print_usage(argv[0]);
@@ -42,6 +50,7 @@ int main(int argc, char * argv[])
         adc_v[i] = static_cast<float>(std::atof(argv[5 + i]));
     }
 
+    // 本工具只关心 ADC + GPIO 输入, DAC/输出位图全部置 0
     float dac_zero[4] = {0.0f, 0.0f, 0.0f, 0.0f};
 
     int sock_fd = socket(AF_INET, SOCK_DGRAM, 0);
@@ -61,6 +70,7 @@ int main(int argc, char * argv[])
         return 1;
     }
 
+    // 简化的 MCU 时间戳近似: wall time 转 ms; 仅占位, 接收侧不用做严格判断
     const uint32_t timestamp_ms = static_cast<uint32_t>(std::time(nullptr) * 1000U);
 
     mavlink_message_t msg {};

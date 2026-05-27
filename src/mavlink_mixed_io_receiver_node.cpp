@@ -1,4 +1,5 @@
 /***** (C) Copyright, Sealien Robotics(Guangzhou) Co.,Ltd. ******source file****/
+/* mavlink_mixed_io_receiver 可执行入口 */
 
 #include "sealien_mavlink_joy_bridge/mavlink_mixed_io_receiver.hpp"
 

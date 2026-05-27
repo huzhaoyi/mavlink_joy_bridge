@@ -1,10 +1,16 @@
 /***** (C) Copyright, Sealien Robotics(Guangzhou) Co.,Ltd. ******source file****/
+/*
+ * adc_to_joy_mapper 实现.
+ * 事件驱动: 由 /mixed_io/raw 订阅触发, 频率跟随 receiver (即 MCU 上报频率).
+ * 单线程模型, 无锁; LPF 状态仅在 raw_callback 中修改.
+ */
 
 #include "sealien_mavlink_joy_bridge/adc_to_joy_mapper.hpp"
 
 #include <algorithm>
 #include <cmath>
 
+/* 构造: 声明参数 -> 初始化 LPF -> 建发布器与订阅器 */
 AdcToJoyMapper::AdcToJoyMapper(const std::string & node_name)
 : Node(node_name),
   raw_topic_("/mixed_io/raw"),
@@ -33,6 +39,8 @@ AdcToJoyMapper::AdcToJoyMapper(const std::string & node_name)
         adc_valid_max_v_);
 }
 
+/* 声明并读取所有 ROS 参数, 默认值与 YAML 保持一致.
+ * 数组长度不足 24 时按 def_val 补足; 多于 24 时截断. */
 void AdcToJoyMapper::param_init()
 {
     raw_topic_ = this->declare_parameter<std::string>("raw_topic", "/mixed_io/raw");
@@ -41,6 +49,7 @@ void AdcToJoyMapper::param_init()
     buttons_count_ = static_cast<size_t>(this->declare_parameter<int>("buttons_count", 24));
 
     const size_t adc_n = 24U;
+    // 通用 lambda: ROS 参数仅原生支持 double 数组, 这里转成 float 以减少滤波运算开销
     auto declare_v = [this, adc_n](const std::string & name, double def_val) {
         auto raw = this->declare_parameter<std::vector<double>>(
             name, std::vector<double>(adc_n, def_val));
@@ -70,6 +79,7 @@ void AdcToJoyMapper::param_init()
     adc_valid_min_v_ = this->declare_parameter<double>("adc_valid_min_v", -0.5);
     adc_valid_max_v_ = this->declare_parameter<double>("adc_valid_max_v", 5.5);
 
+    // 默认通道映射: 0..23 一一对应
     std::vector<int64_t> def_chans(adc_n);
     for (size_t i = 0U; i < adc_n; i++)
     {
@@ -105,11 +115,13 @@ void AdcToJoyMapper::param_init()
         adcjoy_button_map_t entry {};
         entry.gpio_index = static_cast<uint8_t>(btn_gpio[i]);
         entry.joy_button = static_cast<uint8_t>(btn_joy[i]);
+        // active_high 数组短于 gpio/joy 时, 缺省按高有效
         entry.active_high = (i < btn_active.size()) ? btn_active[i] : true;
         button_map_.push_back(entry);
     }
 }
 
+/* 断线/越界检测; 单独成函数, 便于复用与单测 */
 bool AdcToJoyMapper::is_disconnected(float voltage_v) const
 {
     if (std::isnan(voltage_v) || std::isinf(voltage_v))
@@ -120,6 +132,13 @@ bool AdcToJoyMapper::is_disconnected(float voltage_v) const
            (voltage_v > static_cast<float>(adc_valid_max_v_));
 }
 
+/* 单轴流水线: 电压 -> [-1,1]
+ * 1) 三段线性标定: [vmin, vcenter] -> [-1, 0], [vcenter, vmax] -> [0, +1]
+ * 2) 双边死区: 死区内输出 0, 死区外线性拉伸回端点
+ * 3) Expo 曲线: out = sign * (expo*|x|^3 + (1-expo)*|x|)
+ * 4) 通道反向
+ * 注意: 不在此处做 LPF, 滤波由 apply_filter 独立完成.
+ */
 float AdcToJoyMapper::map_axis(uint8_t ch_index, float voltage_v, float * out_raw_centered) const
 {
     if (out_raw_centered != nullptr)
@@ -137,6 +156,7 @@ float AdcToJoyMapper::map_axis(uint8_t ch_index, float voltage_v, float * out_ra
     const float vmax = adc_max_v_[ch_index];
     const float vcenter = adc_center_v_[ch_index];
 
+    // step 1: 三段线性标定
     float centered = 0.0f;
     if (voltage_v >= vcenter)
     {
@@ -161,6 +181,7 @@ float AdcToJoyMapper::map_axis(uint8_t ch_index, float voltage_v, float * out_ra
         *out_raw_centered = centered;
     }
 
+    // step 2: 双边死区 (clamp 上界避免除零)
     float dz_low = 0.05f;
     float dz_high = 0.05f;
     if (ch_index < deadzone_low_.size())
@@ -199,6 +220,7 @@ float AdcToJoyMapper::map_axis(uint8_t ch_index, float voltage_v, float * out_ra
     }
     after_dz = ADCJOY_LIMIT(after_dz, -1.0f, 1.0f);
 
+    // step 3: Expo 曲线 (保持符号)
     float expo = 0.0f;
     if (ch_index < expo_.size())
     {
@@ -210,6 +232,7 @@ float AdcToJoyMapper::map_axis(uint8_t ch_index, float voltage_v, float * out_ra
     const float sign_v = (after_dz >= 0.0f) ? 1.0f : -1.0f;
     const float curved = sign_v * (expo * abs_v * abs_v * abs_v + (1.0f - expo) * abs_v);
 
+    // step 4: 通道反向
     float result = curved;
     if (ch_index < invert_.size() && invert_[ch_index])
     {
@@ -219,6 +242,8 @@ float AdcToJoyMapper::map_axis(uint8_t ch_index, float voltage_v, float * out_ra
     return result;
 }
 
+/* 一阶低通: filtered = alpha*new + (1-alpha)*prev.
+ * alpha=1 时无滤波, alpha=0 时锁死在 prev. */
 float AdcToJoyMapper::apply_filter(uint8_t joy_axis, uint8_t ch_index, float new_value)
 {
     if (joy_axis >= filtered_axes_.size())
@@ -237,6 +262,7 @@ float AdcToJoyMapper::apply_filter(uint8_t joy_axis, uint8_t ch_index, float new
     return filtered;
 }
 
+/* 发布全 0 Joy 并清 LPF; 避免链路恢复后残留旧滤波值 */
 void AdcToJoyMapper::publish_failsafe()
 {
     sensor_msgs::msg::Joy joy_msg;
@@ -248,8 +274,10 @@ void AdcToJoyMapper::publish_failsafe()
     joy_publisher_->publish(joy_msg);
 }
 
+/* /mixed_io/raw 回调: link_ok=false 直接 failsafe; 否则按 axes_map_ / button_map_ 生成 Joy */
 void AdcToJoyMapper::raw_callback(const sealien_mavlink_joy_bridge::msg::MixedIoRaw & msg)
 {
+    // 运行期 axes_count_ 不会变, 但参数更新场景下保护一下
     if (filtered_axes_.size() != axes_count_)
     {
         filtered_axes_.assign(axes_count_, 0.0f);
@@ -278,6 +306,7 @@ void AdcToJoyMapper::raw_callback(const sealien_mavlink_joy_bridge::msg::MixedIo
         float axis_value = 0.0f;
         if (is_disconnected(v))
         {
+            // 断线: 强制 0 + 清 LPF, 避免恢复瞬间从旧值缓慢爬出
             axis_value = 0.0f;
             filtered_axes_[entry.joy_axis] = 0.0f;
             RCLCPP_WARN_THROTTLE(
@@ -301,6 +330,7 @@ void AdcToJoyMapper::raw_callback(const sealien_mavlink_joy_bridge::msg::MixedIo
 
     for (const auto & entry : button_map_)
     {
+        // gpio_index 上限固定 64 (msg.gpio_input_mask 是 uint64)
         if (entry.gpio_index >= 64U || entry.joy_button >= joy_msg.buttons.size())
         {
             continue;

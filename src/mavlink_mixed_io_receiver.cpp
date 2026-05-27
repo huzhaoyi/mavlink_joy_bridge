@@ -1,4 +1,11 @@
 /***** (C) Copyright, Sealien Robotics(Guangzhou) Co.,Ltd. ******source file****/
+/*
+ * mavlink_mixed_io_receiver 实现.
+ * 线程模型:
+ *   - UDP 线程: 阻塞读取 + MAVLink 解析 + 立即发布 (事件驱动)
+ *   - ROS 定时器线程: 50Hz 检查超时, 仅在超时时发 failsafe
+ * 共享状态由 state_mutex_ 保护.
+ */
 
 #include "sealien_mavlink_joy_bridge/mavlink_mixed_io_receiver.hpp"
 
@@ -14,14 +21,17 @@
 #define MIXED_IO_RECV_MAVLINK_COMM (0U)
 #define MIXED_IO_RECV_UDP_BUF_SIZE (2048)
 
+/* MAVLink 解析状态机: 单 channel, 全局静态, 仅 UDP 线程访问 */
 static mavlink_status_t g_mavlink_status;
 static mavlink_message_t g_mavlink_message;
 
+/* 将 MCU 两个 uint32 GPIO 输入位图拼成 uint64; bit0 对应 GPIO0 */
 static uint64_t pack_gpio_input_mask(uint32_t lo, uint32_t hi)
 {
     return (static_cast<uint64_t>(hi) << 32) | static_cast<uint64_t>(lo);
 }
 
+/* 构造: 声明参数 -> 建发布器 -> 启动 UDP 线程 -> 启动 failsafe 定时器 */
 MavlinkMixedIoReceiver::MavlinkMixedIoReceiver(const std::string & node_name)
 : Node(node_name),
   listen_port_(14550),
@@ -58,6 +68,7 @@ MavlinkMixedIoReceiver::MavlinkMixedIoReceiver(const std::string & node_name)
         failsafe_publish_rate_hz_);
 }
 
+/* 析构: 关 socket 中断阻塞 recvfrom, 等待线程退出 */
 MavlinkMixedIoReceiver::~MavlinkMixedIoReceiver()
 {
     thread_running_.store(false);
@@ -68,6 +79,7 @@ MavlinkMixedIoReceiver::~MavlinkMixedIoReceiver()
     }
 }
 
+/* 声明并读取 ROS 参数, 默认值与 YAML 一致 */
 void MavlinkMixedIoReceiver::param_init()
 {
     listen_address_ = this->declare_parameter<std::string>("listen_address", "0.0.0.0");
@@ -78,6 +90,7 @@ void MavlinkMixedIoReceiver::param_init()
     failsafe_publish_rate_hz_ = this->declare_parameter<double>("failsafe_publish_rate_hz", 50.0);
 }
 
+/* 幂等关闭 UDP socket: 析构与 bind 失败路径都会调 */
 void MavlinkMixedIoReceiver::close_udp_socket()
 {
     if (udp_socket_fd_ >= 0)
@@ -87,6 +100,7 @@ void MavlinkMixedIoReceiver::close_udp_socket()
     }
 }
 
+/* 组装并发布一条 /mixed_io/raw; 调用方负责保证 adc_v 至少 24 个元素 */
 void MavlinkMixedIoReceiver::publish_raw(
     bool link_ok,
     uint32_t mcu_timestamp_ms,
@@ -103,6 +117,12 @@ void MavlinkMixedIoReceiver::publish_raw(
     raw_publisher_->publish(msg);
 }
 
+/* UDP 线程主循环
+ * 1) 建 socket 并 bind; 失败直接返回 (节点保持运行, 定时器会持续发 failsafe)
+ * 2) 阻塞 recvfrom, 收到一包后按可选 IP 白名单过滤
+ * 3) 逐字节喂 mavlink_parse_char; 只关心 MIXED_IO_DATA(20)
+ * 4) 展平 24 路 ADC + 拼 64 位 GPIO mask, 更新 last_rx_time_, 立即发布
+ */
 void MavlinkMixedIoReceiver::udp_thread_func()
 {
     udp_socket_fd_ = socket(AF_INET, SOCK_DGRAM, 0);
@@ -147,6 +167,7 @@ void MavlinkMixedIoReceiver::udp_thread_func()
 
         if (n < 0)
         {
+            // 析构关 socket 会让阻塞 recvfrom 返回错误, 用 thread_running_ 区分
             if (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR)
             {
                 continue;
@@ -164,6 +185,7 @@ void MavlinkMixedIoReceiver::udp_thread_func()
             continue;
         }
 
+        // 可选 IP 白名单: 空串表示不过滤
         if (!remote_ip_filter_.empty())
         {
             char ip_str[INET_ADDRSTRLEN] = {0};
@@ -193,6 +215,7 @@ void MavlinkMixedIoReceiver::udp_thread_func()
             mavlink_mixed_io_data_t io_data {};
             mavlink_msg_mixed_io_data_decode(&g_mavlink_message, &io_data);
 
+            // 3×8 ADC 展平为 [dev1_ch0..7, dev2_ch0..7, dev3_ch0..7]
             float adc_v[MIXED_IO_RECV_ADC_COUNT] = {0.0f};
             for (uint8_t k = 0U; k < 8U; k++)
             {
@@ -220,6 +243,7 @@ void MavlinkMixedIoReceiver::udp_thread_func()
     }
 }
 
+/* failsafe 定时器: 链路活时不发 (避免与 UDP 线程重复发布), 仅超时时持续发零帧 */
 void MavlinkMixedIoReceiver::failsafe_timer_callback()
 {
     bool need_failsafe = false;
